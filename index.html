@@ -2,230 +2,129 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Options P&L Tracker</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Options PNL Tracker</title>
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
-    body { font-family: Arial; padding: 20px; }
-    input, select, button { margin: 5px; }
-    table { border-collapse: collapse; width: 100%; margin-top: 20px; }
-    th, td { border: 1px solid #ccc; padding: 8px; text-align: center; }
-
-    .chart-container {
-      width: 200px;
-      height: 200px;
-      position: relative;
-      margin-bottom: 30px;
-      transition: all 0.3s ease-in-out;
-      border: 1px solid #ddd;
-      padding: 10px;
-    }
-
-    .chart-container.zoomed {
-      width: 1000px;
-      height: 1000px;
-    }
-
-    canvas {
-      width: 100% !important;
-      height: 100% !important;
-    }
-
-    .zoom-button {
-      position: absolute;
-      bottom: 10px;
-      right: 10px;
-      padding: 4px 8px;
-      font-size: 14px;
-      cursor: pointer;
-    }
-
-    #importFile {
-      margin-top: 20px;
-    }
+    body { font-family: Arial, sans-serif; padding: 20px; }
+    .chart-container { display: flex; gap: 20px; flex-wrap: wrap; }
+    canvas { width: 200px !important; height: 200px !important; }
+    #tradesTable { margin-top: 20px; width: 100%; border-collapse: collapse; }
+    #tradesTable th, #tradesTable td { border: 1px solid #ccc; padding: 5px; }
   </style>
 </head>
 <body>
-  <h1>Options P&L Tracker</h1>
+  <h1>Options PNL Tracker</h1>
 
-  <form id="tradeForm">
-    <input type="text" id="symbol" placeholder="Symbol (e.g., AAPL)" required>
-    <select id="type">
-      <option value="CALL">CALL</option>
-      <option value="PUT">PUT</option>
-    </select>
-    <input type="number" step="0.01" id="entryPrice" placeholder="Entry Price" required>
-    <input type="number" step="0.01" id="exitPrice" placeholder="Exit Price" required>
-    <input type="number" id="contracts" placeholder="Contracts" required>
-    <button type="submit">Add Trade</button>
-  </form>
+  <input type="file" id="csvInput" accept=".csv" />
+  <button onclick="exportCSV()">Export Trades</button>
 
-  <input type="file" id="importFile" accept=".json">
-  <button onclick="clearTrades()">🗑️ Clear All</button>
-
-  <table>
-    <thead>
-      <tr>
-        <th>Symbol</th>
-        <th>Type</th>
-        <th>Entry</th>
-        <th>Exit</th>
-        <th>Contracts</th>
-        <th>P&L ($)</th>
-      </tr>
-    </thead>
-    <tbody id="tradesTable">
-      <!-- Trades go here -->
-    </tbody>
-  </table>
-
-  <h2>P&L Breakdown</h2>
-  <div class="chart-container" id="pnlChartContainer">
-    <canvas id="pnlChart"></canvas>
-    <button onclick="toggleZoom('pnlChartContainer')" class="zoom-button">🔍 Zoom</button>
+  <div class="chart-container">
+    <div>
+      <h3>PNL Chart</h3>
+      <canvas id="pnlChart"></canvas>
+    </div>
+    <div>
+      <h3>Win/Loss Chart</h3>
+      <canvas id="winLossChart"></canvas>
+    </div>
   </div>
 
-  <h2>Win vs Loss</h2>
-  <div class="chart-container" id="winLossChartContainer">
-    <canvas id="winLossChart"></canvas>
-    <button onclick="toggleZoom('winLossChartContainer')" class="zoom-button">🔍 Zoom</button>
-  </div>
+  <table id="tradesTable"></table>
 
   <script>
-    const tradeForm = document.getElementById('tradeForm');
-    const tradesTable = document.getElementById('tradesTable');
-    const importFile = document.getElementById('importFile');
+    const pnlCtx = document.getElementById('pnlChart').getContext('2d');
+    const winLossCtx = document.getElementById('winLossChart').getContext('2d');
 
-    let trades = [];
-    let totalProfit = 0;
-    let totalLoss = 0;
-    let winCount = 0;
-    let lossCount = 0;
+    let pnlChart, winLossChart;
 
-    const pnlChartCtx = document.getElementById('pnlChart').getContext('2d');
-    const winLossChartCtx = document.getElementById('winLossChart').getContext('2d');
-
-    const pnlChart = new Chart(pnlChartCtx, {
-      type: 'pie',
-      data: {
-        labels: ['Profit', 'Loss'],
-        datasets: [{
-          data: [0, 0],
-          backgroundColor: ['green', 'red'],
-        }]
-      },
-      options: { responsive: true }
-    });
-
-    const winLossChart = new Chart(winLossChartCtx, {
-      type: 'pie',
-      data: {
-        labels: ['Wins', 'Losses'],
-        datasets: [{
-          data: [0, 0],
-          backgroundColor: ['blue', 'gray'],
-        }]
-      },
-      options: { responsive: true }
-    });
-
-    function updateCharts() {
-      pnlChart.data.datasets[0].data = [totalProfit, Math.abs(totalLoss)];
-      winLossChart.data.datasets[0].data = [winCount, lossCount];
-      pnlChart.update();
-      winLossChart.update();
-    }
-
-    function renderTrade(trade) {
-      const row = tradesTable.insertRow();
-      row.innerHTML = `
-        <td>${trade.symbol}</td>
-        <td>${trade.type}</td>
-        <td>${trade.entryPrice}</td>
-        <td>${trade.exitPrice}</td>
-        <td>${trade.contracts}</td>
-        <td style="color: ${trade.pnl >= 0 ? 'green' : 'red'};">${trade.pnl.toFixed(2)}</td>
-      `;
-    }
-
-    function processTrade(trade) {
-      if (trade.pnl >= 0) {
-        totalProfit += trade.pnl;
-        winCount++;
-      } else {
-        totalLoss += trade.pnl;
-        lossCount++;
-      }
-      trades.push(trade);
-      renderTrade(trade);
-      updateCharts();
-      localStorage.setItem('optionTrades', JSON.stringify(trades));
-    }
-
-    tradeForm.addEventListener('submit', function (e) {
-      e.preventDefault();
-
-      const symbol = document.getElementById('symbol').value.toUpperCase();
-      const type = document.getElementById('type').value;
-      const entryPrice = parseFloat(document.getElementById('entryPrice').value);
-      const exitPrice = parseFloat(document.getElementById('exitPrice').value);
-      const contracts = parseInt(document.getElementById('contracts').value);
-      const multiplier = 100;
-      const pnl = (exitPrice - entryPrice) * contracts * multiplier;
-
-      const trade = { symbol, type, entryPrice, exitPrice, contracts, pnl };
-      processTrade(trade);
-      tradeForm.reset();
-    });
-
-    function loadTradesFromLocalStorage() {
-      const saved = localStorage.getItem('optionTrades');
-      if (saved) {
-        const savedTrades = JSON.parse(saved);
-        savedTrades.forEach(processTrade);
-      }
-    }
-
-    function clearTrades() {
-      if (confirm("Are you sure you want to clear all trades?")) {
-        trades = [];
-        totalProfit = 0;
-        totalLoss = 0;
-        winCount = 0;
-        lossCount = 0;
-        tradesTable.innerHTML = '';
-        updateCharts();
-        localStorage.removeItem('optionTrades');
-      }
-    }
-
-    function toggleZoom(containerId) {
-      const container = document.getElementById(containerId);
-      container.classList.toggle('zoomed');
-    }
-
-    importFile.addEventListener('change', function () {
-      const file = importFile.files[0];
-      if (!file) return;
-
-      const reader = new FileReader();
-      reader.onload = function (e) {
-        try {
-          const importedTrades = JSON.parse(e.target.result);
-          if (Array.isArray(importedTrades)) {
-            importedTrades.forEach(processTrade);
-            alert("Trades imported successfully.");
-          } else {
-            alert("Invalid JSON format.");
-          }
-        } catch (err) {
-          alert("Error parsing file.");
+    document.getElementById('csvInput').addEventListener('change', function (e) {
+      const file = e.target.files[0];
+      Papa.parse(file, {
+        header: true,
+        complete: function (results) {
+          const trades = results.data.filter(row => row.Status === "Filled");
+          localStorage.setItem('trades', JSON.stringify(trades));
+          alert('Trades imported successfully!');
+          displayTrades(trades);
+          updateCharts(trades);
         }
-      };
-      reader.readAsText(file);
+      });
     });
 
-    // Load saved trades on page load
-    loadTradesFromLocalStorage();
+    function exportCSV() {
+      const trades = JSON.parse(localStorage.getItem('trades') || '[]');
+      const csv = Papa.unparse(trades);
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.setAttribute('href', url);
+      link.setAttribute('download', 'my_trades.csv');
+      link.click();
+    }
+
+    function displayTrades(trades) {
+      const table = document.getElementById('tradesTable');
+      table.innerHTML = '';
+      if (!trades.length) return;
+      const headers = Object.keys(trades[0]);
+      let html = '<tr>' + headers.map(h => `<th>${h}</th>`).join('') + '</tr>';
+      trades.forEach(t => {
+        html += '<tr>' + headers.map(h => `<td>${t[h]}</td>`).join('') + '</tr>';
+      });
+      table.innerHTML = html;
+    }
+
+    function updateCharts(trades) {
+      let profit = 0, loss = 0, wins = 0, losses = 0;
+      trades.forEach(t => {
+        const side = t.Side;
+        const qty = parseFloat(t['Total Qty'] || 0);
+        const price = parseFloat(t.Price || 0);
+        const avg = parseFloat(t['Avg Price'] || 0);
+
+        const pnl = side === 'Buy' ? (avg - price) * qty : (price - avg) * qty;
+        if (pnl > 0) {
+          profit += pnl;
+          wins++;
+        } else {
+          loss += Math.abs(pnl);
+          losses++;
+        }
+      });
+
+      if (pnlChart) pnlChart.destroy();
+      pnlChart = new Chart(pnlCtx, {
+        type: 'pie',
+        data: {
+          labels: ['Profit', 'Loss'],
+          datasets: [{
+            data: [profit, loss],
+            backgroundColor: ['green', 'red']
+          }]
+        }
+      });
+
+      if (winLossChart) winLossChart.destroy();
+      winLossChart = new Chart(winLossCtx, {
+        type: 'pie',
+        data: {
+          labels: ['Wins', 'Losses'],
+          datasets: [{
+            data: [wins, losses],
+            backgroundColor: ['blue', 'orange']
+          }]
+        }
+      });
+    }
+
+    // Load trades on refresh
+    const saved = JSON.parse(localStorage.getItem('trades') || '[]');
+    if (saved.length) {
+      displayTrades(saved);
+      updateCharts(saved);
+    }
   </script>
 </body>
 </html>
