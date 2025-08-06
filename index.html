@@ -1,198 +1,317 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Options PNL Tracker</title>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/luxon@3.0.1/build/global/luxon.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1.2.0"></script>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            padding: 20px;
-        }
-        canvas {
-            max-width: 300px;
-            max-height: 300px;
-        }
-        .charts {
-            display: flex;
-            gap: 20px;
-            margin-bottom: 20px;
-        }
-        table, th, td {
-            border: 1px solid black;
-            border-collapse: collapse;
-            padding: 8px;
-        }
-        th {
-            background-color: #f2f2f2;
-        }
-    </style>
+  <meta charset="UTF-8">
+  <title>Options P&L Tracker</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body { font-family: Arial; padding: 20px; }
+    input, select, button { margin: 5px; }
+    table { border-collapse: collapse; width: 100%; margin-top: 20px; }
+    th, td { border: 1px solid #ccc; padding: 8px; text-align: center; }
+
+    .chart-container {
+      width: 200px;
+      height: 200px;
+      position: relative;
+      margin-bottom: 30px;
+      transition: all 0.3s ease-in-out;
+      border: 1px solid #ddd;
+      padding: 10px;
+    }
+
+    .chart-container.zoomed {
+      width: 1000px;
+      height: 1000px;
+    }
+
+    canvas {
+      width: 100% !important;
+      height: 100% !important;
+    }
+
+    .zoom-button {
+      position: absolute;
+      bottom: 10px;
+      right: 10px;
+      padding: 4px 8px;
+      font-size: 14px;
+      cursor: pointer;
+    }
+
+    #importFile {
+      margin-top: 20px;
+    }
+  </style>
 </head>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <body>
-    <h1>Options PNL Tracker</h1>
+  <h1>Options P&L Tracker</h1>
 
-    <div>
-        <label for="fileInput">Import Trades CSV:</label>
-        <input type="file" id="fileInput" accept=".csv" />
-    </div>
+  <form id="tradeForm">
+    <input type="text" id="symbol" placeholder="Symbol (e.g., AAPL)" required>
+    <select id="type">
+      <option value="CALL">CALL</option>
+      <option value="PUT">PUT</option>
+    </select>
+    <input type="number" step="0.01" id="entryPrice" placeholder="Entry Price" required>
+    <input type="number" step="0.01" id="exitPrice" placeholder="Exit Price" required>
+    <input type="number" id="contracts" placeholder="Contracts" required>
+    <button type="submit">Add Trade</button>
+  </form>
 
-    <div class="charts">
-        <div>
-            <h3>Total PNL</h3>
-            <canvas id="pnlPie"></canvas>
-        </div>
-        <div>
-            <h3>Win vs Loss</h3>
-            <canvas id="winLossPie"></canvas>
-        </div>
-    </div>
+  <input type="file" id="importFile" accept=".json">
+  <button onclick="clearTrades()">🗑️ Clear All</button>
 
-    <h3>Weekly PNL</h3>
-    <canvas id="weeklyPNLChart"></canvas>
+  <table>
+    <thead>
+      <tr>
+        <th>Symbol</th>
+        <th>Type</th>
+        <th>Entry</th>
+        <th>Exit</th>
+        <th>Contracts</th>
+        <th>P&L ($)</th>
+      </tr>
+    </thead>
+    <tbody id="tradesTable">
+      <!-- Trades go here -->
+    </tbody>
+  </table>
+<h2>P&L Breakdown</h2>
+<canvas id="pnlChart" width="400" height="200"></canvas>
 
-    <h3>Trades Calendar</h3>
-    <table id="calendarTable"></table>
+<h2>Win vs Loss</h2>
+<canvas id="winLossChart" width="400" height="200"></canvas>
+<script>
+  const tradeForm = document.getElementById('tradeForm');
+  const tradesTable = document.getElementById('tradesTable');
 
-    <script>
-        const fileInput = document.getElementById("fileInput");
-        const calendarTable = document.getElementById("calendarTable");
+  let totalProfit = 0;
+  let totalLoss = 0;
+  let winCount = 0;
+  let lossCount = 0;
 
-        fileInput.addEventListener("change", (event) => {
-            const file = event.target.files[0];
-            const reader = new FileReader();
-            reader.onload = (e) => {
-                const lines = e.target.result.split("\n").slice(1);
-                const trades = lines.map(line => {
-                    const cols = line.split(',');
-                    return {
-                        symbol: cols[1],
-                        side: cols[2],
-                        status: cols[3],
-                        qty: parseInt(cols[4]),
-                        price: parseFloat(cols[6].replace('@', '')),
-                        time: new Date(cols[10])
-                    };
-                }).filter(trade => trade.status === 'Filled' && !isNaN(trade.price));
+  // Initialize charts
+  const pnlChartCtx = document.getElementById('pnlChart').getContext('2d');
+  const winLossChartCtx = document.getElementById('winLossChart').getContext('2d');
 
-                localStorage.setItem("trades", JSON.stringify(trades));
-                renderCharts(trades);
-                renderCalendar(trades);
-                renderWeeklyPNL(trades);
-            };
-            reader.readAsText(file);
-        });
+  const pnlChart = new Chart(pnlChartCtx, {
+    type: 'pie',
+    data: {
+      labels: ['Profit', 'Loss'],
+      datasets: [{
+        data: [0, 0],
+        backgroundColor: ['green', 'red'],
+      }]
+    },
+    options: {
+      responsive: true
 
-        function renderCharts(trades) {
-            let totalPNL = 0, wins = 0, losses = 0;
-            const positionMap = new Map();
+  <h2>P&L Breakdown</h2>
+  <div class="chart-container" id="pnlChartContainer">
+    <canvas id="pnlChart"></canvas>
+    <button onclick="toggleZoom('pnlChartContainer')" class="zoom-button">🔍 Zoom</button>
+  </div>
 
-            for (const trade of trades) {
-                const key = trade.symbol;
-                if (!positionMap.has(key)) positionMap.set(key, []);
-                positionMap.get(key).push(trade);
-            }
+  <h2>Win vs Loss</h2>
+  <div class="chart-container" id="winLossChartContainer">
+    <canvas id="winLossChart"></canvas>
+    <button onclick="toggleZoom('winLossChartContainer')" class="zoom-button">🔍 Zoom</button>
+  </div>
 
-            positionMap.forEach((tradeList) => {
-                let netQty = 0, avgCost = 0, pnl = 0;
-                tradeList.forEach((t) => {
-                    if (t.side === "Buy") {
-                        avgCost = (avgCost * netQty + t.price * t.qty) / (netQty + t.qty);
-                        netQty += t.qty;
-                    } else if (t.side === "Sell") {
-                        pnl += (t.price - avgCost) * t.qty;
-                        netQty -= t.qty;
-                    }
-                });
-                totalPNL += pnl;
-                if (pnl > 0) wins++;
-                else if (pnl < 0) losses++;
-            });
+  <script>
+    const tradeForm = document.getElementById('tradeForm');
+    const tradesTable = document.getElementById('tradesTable');
+    const importFile = document.getElementById('importFile');
 
-            new Chart(document.getElementById("pnlPie"), {
-                type: "pie",
-                data: {
-                    labels: ["PNL"],
-                    datasets: [{ data: [totalPNL], backgroundColor: ["#4caf50"] }]
-                }
-            });
+    let trades = [];
+    let totalProfit = 0;
+    let totalLoss = 0;
+    let winCount = 0;
+    let lossCount = 0;
 
-            new Chart(document.getElementById("winLossPie"), {
-                type: "pie",
-                data: {
-                    labels: ["Wins", "Losses"],
-                    datasets: [{
-                        data: [wins, losses],
-                        backgroundColor: ["#2196f3", "#f44336"]
-                    }]
-                }
-            });
+    const pnlChartCtx = document.getElementById('pnlChart').getContext('2d');
+    const winLossChartCtx = document.getElementById('winLossChart').getContext('2d');
+
+    const pnlChart = new Chart(pnlChartCtx, {
+      type: 'pie',
+      data: {
+        labels: ['Profit', 'Loss'],
+        datasets: [{
+          data: [0, 0],
+          backgroundColor: ['green', 'red'],
+        }]
+      },
+      options: { responsive: true }
+    });
+
+    const winLossChart = new Chart(winLossChartCtx, {
+      type: 'pie',
+      data: {
+        labels: ['Wins', 'Losses'],
+        datasets: [{
+          data: [0, 0],
+          backgroundColor: ['blue', 'gray'],
+        }]
+      },
+      options: { responsive: true }
+    });
+
+    function updateCharts() {
+      pnlChart.data.datasets[0].data = [totalProfit, Math.abs(totalLoss)];
+      winLossChart.data.datasets[0].data = [winCount, lossCount];
+      pnlChart.update();
+      winLossChart.update();
+    }
+  });
+
+  const winLossChart = new Chart(winLossChartCtx, {
+    type: 'pie',
+    data: {
+      labels: ['Wins', 'Losses'],
+      datasets: [{
+        data: [0, 0],
+        backgroundColor: ['blue', 'gray'],
+      }]
+    },
+    options: {
+      responsive: true
+
+    function renderTrade(trade) {
+      const row = tradesTable.insertRow();
+      row.innerHTML = `
+        <td>${trade.symbol}</td>
+        <td>${trade.type}</td>
+        <td>${trade.entryPrice}</td>
+        <td>${trade.exitPrice}</td>
+        <td>${trade.contracts}</td>
+        <td style="color: ${trade.pnl >= 0 ? 'green' : 'red'};">${trade.pnl.toFixed(2)}</td>
+      `;
+    }
+  });
+
+  function updateCharts() {
+    pnlChart.data.datasets[0].data = [totalProfit, Math.abs(totalLoss)];
+    pnlChart.update();
+
+    winLossChart.data.datasets[0].data = [winCount, lossCount];
+    winLossChart.update();
+  }
+
+  tradeForm.addEventListener('submit', function(e) {
+    e.preventDefault();
+
+    const symbol = document.getElementById('symbol').value.toUpperCase();
+    const type = document.getElementById('type').value;
+    const entryPrice = parseFloat(document.getElementById('entryPrice').value);
+    const exitPrice = parseFloat(document.getElementById('exitPrice').value);
+    const contracts = parseInt(document.getElementById('contracts').value);
+
+    const multiplier = 100; // 1 contract = 100 shares
+    const pnl = ((exitPrice - entryPrice) * contracts * multiplier).toFixed(2);
+    const pnlNumber = parseFloat(pnl);
+
+    if (pnlNumber >= 0) {
+      totalProfit += pnlNumber;
+      winCount++;
+    } else {
+      totalLoss += pnlNumber; // Note: this is negative
+      lossCount++;
+
+    function processTrade(trade) {
+      if (trade.pnl >= 0) {
+        totalProfit += trade.pnl;
+        winCount++;
+      } else {
+        totalLoss += trade.pnl;
+        lossCount++;
+      }
+      trades.push(trade);
+      renderTrade(trade);
+      updateCharts();
+      localStorage.setItem('optionTrades', JSON.stringify(trades));
+    }
+
+    const row = tradesTable.insertRow();
+    row.innerHTML = `
+      <td>${symbol}</td>
+      <td>${type}</td>
+      <td>${entryPrice}</td>
+      <td>${exitPrice}</td>
+      <td>${contracts}</td>
+      <td style="color: ${pnlNumber >= 0 ? 'green' : 'red'};">${pnl}</td>
+    `;
+
+    updateCharts();
+    tradeForm.reset();
+  });
+</script>
+    tradeForm.addEventListener('submit', function (e) {
+      e.preventDefault();
+
+      const symbol = document.getElementById('symbol').value.toUpperCase();
+      const type = document.getElementById('type').value;
+      const entryPrice = parseFloat(document.getElementById('entryPrice').value);
+      const exitPrice = parseFloat(document.getElementById('exitPrice').value);
+      const contracts = parseInt(document.getElementById('contracts').value);
+      const multiplier = 100;
+      const pnl = (exitPrice - entryPrice) * contracts * multiplier;
+
+      const trade = { symbol, type, entryPrice, exitPrice, contracts, pnl };
+      processTrade(trade);
+      tradeForm.reset();
+    });
+
+    function loadTradesFromLocalStorage() {
+      const saved = localStorage.getItem('optionTrades');
+      if (saved) {
+        const savedTrades = JSON.parse(saved);
+        savedTrades.forEach(processTrade);
+      }
+    }
+
+    function clearTrades() {
+      if (confirm("Are you sure you want to clear all trades?")) {
+        trades = [];
+        totalProfit = 0;
+        totalLoss = 0;
+        winCount = 0;
+        lossCount = 0;
+        tradesTable.innerHTML = '';
+        updateCharts();
+        localStorage.removeItem('optionTrades');
+      }
+    }
+
+    function toggleZoom(containerId) {
+      const container = document.getElementById(containerId);
+      container.classList.toggle('zoomed');
+    }
+
+    importFile.addEventListener('change', function () {
+      const file = importFile.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = function (e) {
+        try {
+          const importedTrades = JSON.parse(e.target.result);
+          if (Array.isArray(importedTrades)) {
+            importedTrades.forEach(processTrade);
+            alert("Trades imported successfully.");
+          } else {
+            alert("Invalid JSON format.");
+          }
+        } catch (err) {
+          alert("Error parsing file.");
         }
+      };
+      reader.readAsText(file);
+    });
 
-        function renderWeeklyPNL(trades) {
-            const weeklyPNL = {};
-
-            trades.forEach(t => {
-                const date = new Date(t.time);
-                const weekKey = `${date.getFullYear()}-W${getWeekNumber(date)}`;
-                if (!weeklyPNL[weekKey]) weeklyPNL[weekKey] = { buys: [], sells: [] };
-                if (t.side === "Buy") weeklyPNL[weekKey].buys.push(t);
-                if (t.side === "Sell") weeklyPNL[weekKey].sells.push(t);
-            });
-
-            const labels = [], data = [];
-            for (const [week, { buys, sells }] of Object.entries(weeklyPNL)) {
-                let netQty = 0, avg = 0, pnl = 0;
-                buys.forEach(b => {
-                    avg = (avg * netQty + b.price * b.qty) / (netQty + b.qty);
-                    netQty += b.qty;
-                });
-                sells.forEach(s => {
-                    pnl += (s.price - avg) * s.qty;
-                    netQty -= s.qty;
-                });
-                labels.push(week);
-                data.push(pnl);
-            }
-
-            new Chart(document.getElementById("weeklyPNLChart"), {
-                type: "bar",
-                data: {
-                    labels,
-                    datasets: [{
-                        label: "Weekly PNL",
-                        data,
-                        backgroundColor: "#ff9800"
-                    }]
-                }
-            });
-        }
-
-        function getWeekNumber(d) {
-            d = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
-            const dayNum = d.getUTCDay() || 7;
-            d.setUTCDate(d.getUTCDate() + 4 - dayNum);
-            const yearStart = new Date(Date.UTC(d.getUTCFullYear(),0,1));
-            return Math.ceil((((d - yearStart) / 86400000) + 1)/7);
-        }
-
-        function renderCalendar(trades) {
-            const dateMap = {};
-            trades.forEach(t => {
-                const date = t.time.toISOString().split('T')[0];
-                if (!dateMap[date]) dateMap[date] = [];
-                dateMap[date].push(t);
-            });
-
-            const dates = Object.keys(dateMap).sort();
-            calendarTable.innerHTML = '<tr><th>Date</th><th>Trades</th></tr>';
-            dates.forEach(date => {
-                const count = dateMap[date].length;
-                calendarTable.innerHTML += `<tr><td>${date}</td><td>${count} trade(s)</td></tr>`;
-            });
-        }
-    </script>
+    // Load saved trades on page load
+    loadTradesFromLocalStorage();
+  </script>
 </body>
 </html>
