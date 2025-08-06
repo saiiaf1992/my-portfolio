@@ -1,69 +1,74 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>My Portfolio</title>
+  <meta charset="UTF-8">
+  <title>Options P&L Tracker</title>
   <style>
-    body {
-      font-family: Arial, sans-serif;
-      margin: 0;
-      padding: 0;
-      background-color: #f4f4f4;
-      color: #333;
-    }
-    header {
-      background-color: #222;
-      color: white;
-      padding: 1rem 2rem;
-      text-align: center;
-    }
-    main {
-      padding: 2rem;
-    }
-    section {
-      margin-bottom: 2rem;
-    }
-    h2 {
-      border-bottom: 2px solid #ccc;
-      padding-bottom: 0.5rem;
-    }
-    footer {
-      background-color: #222;
-      color: white;
-      text-align: center;
-      padding: 1rem;
-      position: fixed;
-      width: 100%;
-      bottom: 0;
-    }
+    body { font-family: Arial; padding: 20px; }
+    input, select, button { margin: 5px; }
+    table { border-collapse: collapse; width: 100%; margin-top: 20px; }
+    th, td { border: 1px solid #ccc; padding: 8px; text-align: center; }
   </style>
 </head>
 <body>
-  <header>
-    <h1>Welcome to My Portfolio</h1>
-  </header>
-  <main>
-    <section>
-      <h2>About Me</h2>
-      <p>Hello! I'm [Your Name], a passionate developer and problem solver.</p>
-    </section>
-    <section>
-      <h2>Projects</h2>
-      <ul>
-        <li>Project 1 – Description</li>
-        <li>Project 2 – Description</li>
-        <li>Project 3 – Description</li>
-      </ul>
-    </section>
-    <section>
-      <h2>Contact</h2>
-      <p>Email: yourname@example.com</p>
-      <p>LinkedIn: linkedin.com/in/yourname</p>
-    </section>
-  </main>
-  <footer>
-    <p>&copy; 2025 Your Name</p>
-  </footer>
+  <h1>Options P&L Tracker</h1>
+
+  <form id="tradeForm">
+    <input type="text" id="symbol" placeholder="Symbol (e.g., AAPL)" required>
+    <select id="type">
+      <option value="CALL">CALL</option>
+      <option value="PUT">PUT</option>
+    </select>
+    <input type="number" step="0.01" id="entryPrice" placeholder="Entry Price" required>
+    <input type="number" step="0.01" id="exitPrice" placeholder="Exit Price" required>
+    <input type="number" id="contracts" placeholder="Contracts" required>
+    <button type="submit">Add Trade</button>
+  </form>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Symbol</th>
+        <th>Type</th>
+        <th>Entry</th>
+        <th>Exit</th>
+        <th>Contracts</th>
+        <th>P&L ($)</th>
+      </tr>
+    </thead>
+    <tbody id="tradesTable">
+      <!-- Trades go here -->
+    </tbody>
+  </table>
+
+  <script>
+    const tradeForm = document.getElementById('tradeForm');
+    const tradesTable = document.getElementById('tradesTable');
+
+    tradeForm.addEventListener('submit', function(e) {
+      e.preventDefault();
+
+      const symbol = document.getElementById('symbol').value.toUpperCase();
+      const type = document.getElementById('type').value;
+      const entryPrice = parseFloat(document.getElementById('entryPrice').value);
+      const exitPrice = parseFloat(document.getElementById('exitPrice').value);
+      const contracts = parseInt(document.getElementById('contracts').value);
+
+      const multiplier = 100; // 1 contract = 100 shares
+      const pnl = ((exitPrice - entryPrice) * contracts * multiplier).toFixed(2);
+
+      const row = tradesTable.insertRow();
+      row.innerHTML = `
+        <td>${symbol}</td>
+        <td>${type}</td>
+        <td>${entryPrice}</td>
+        <td>${exitPrice}</td>
+        <td>${contracts}</td>
+        <td style="color: ${pnl >= 0 ? 'green' : 'red'};">${pnl}</td>
+      `;
+
+      tradeForm.reset();
+    });
+  </script>
 </body>
 </html>
