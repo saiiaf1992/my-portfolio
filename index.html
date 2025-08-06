@@ -10,6 +10,7 @@
     th, td { border: 1px solid #ccc; padding: 8px; text-align: center; }
   </style>
 </head>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <body>
   <h1>Options P&L Tracker</h1>
 
@@ -40,35 +41,94 @@
       <!-- Trades go here -->
     </tbody>
   </table>
+<h2>P&L Breakdown</h2>
+<canvas id="pnlChart" width="400" height="200"></canvas>
 
-  <script>
-    const tradeForm = document.getElementById('tradeForm');
-    const tradesTable = document.getElementById('tradesTable');
+<h2>Win vs Loss</h2>
+<canvas id="winLossChart" width="400" height="200"></canvas>
+<script>
+  const tradeForm = document.getElementById('tradeForm');
+  const tradesTable = document.getElementById('tradesTable');
 
-    tradeForm.addEventListener('submit', function(e) {
-      e.preventDefault();
+  let totalProfit = 0;
+  let totalLoss = 0;
+  let winCount = 0;
+  let lossCount = 0;
 
-      const symbol = document.getElementById('symbol').value.toUpperCase();
-      const type = document.getElementById('type').value;
-      const entryPrice = parseFloat(document.getElementById('entryPrice').value);
-      const exitPrice = parseFloat(document.getElementById('exitPrice').value);
-      const contracts = parseInt(document.getElementById('contracts').value);
+  // Initialize charts
+  const pnlChartCtx = document.getElementById('pnlChart').getContext('2d');
+  const winLossChartCtx = document.getElementById('winLossChart').getContext('2d');
 
-      const multiplier = 100; // 1 contract = 100 shares
-      const pnl = ((exitPrice - entryPrice) * contracts * multiplier).toFixed(2);
+  const pnlChart = new Chart(pnlChartCtx, {
+    type: 'pie',
+    data: {
+      labels: ['Profit', 'Loss'],
+      datasets: [{
+        data: [0, 0],
+        backgroundColor: ['green', 'red'],
+      }]
+    },
+    options: {
+      responsive: true
+    }
+  });
 
-      const row = tradesTable.insertRow();
-      row.innerHTML = `
-        <td>${symbol}</td>
-        <td>${type}</td>
-        <td>${entryPrice}</td>
-        <td>${exitPrice}</td>
-        <td>${contracts}</td>
-        <td style="color: ${pnl >= 0 ? 'green' : 'red'};">${pnl}</td>
-      `;
+  const winLossChart = new Chart(winLossChartCtx, {
+    type: 'pie',
+    data: {
+      labels: ['Wins', 'Losses'],
+      datasets: [{
+        data: [0, 0],
+        backgroundColor: ['blue', 'gray'],
+      }]
+    },
+    options: {
+      responsive: true
+    }
+  });
 
-      tradeForm.reset();
-    });
-  </script>
+  function updateCharts() {
+    pnlChart.data.datasets[0].data = [totalProfit, Math.abs(totalLoss)];
+    pnlChart.update();
+
+    winLossChart.data.datasets[0].data = [winCount, lossCount];
+    winLossChart.update();
+  }
+
+  tradeForm.addEventListener('submit', function(e) {
+    e.preventDefault();
+
+    const symbol = document.getElementById('symbol').value.toUpperCase();
+    const type = document.getElementById('type').value;
+    const entryPrice = parseFloat(document.getElementById('entryPrice').value);
+    const exitPrice = parseFloat(document.getElementById('exitPrice').value);
+    const contracts = parseInt(document.getElementById('contracts').value);
+
+    const multiplier = 100; // 1 contract = 100 shares
+    const pnl = ((exitPrice - entryPrice) * contracts * multiplier).toFixed(2);
+    const pnlNumber = parseFloat(pnl);
+
+    if (pnlNumber >= 0) {
+      totalProfit += pnlNumber;
+      winCount++;
+    } else {
+      totalLoss += pnlNumber; // Note: this is negative
+      lossCount++;
+    }
+
+    const row = tradesTable.insertRow();
+    row.innerHTML = `
+      <td>${symbol}</td>
+      <td>${type}</td>
+      <td>${entryPrice}</td>
+      <td>${exitPrice}</td>
+      <td>${contracts}</td>
+      <td style="color: ${pnlNumber >= 0 ? 'green' : 'red'};">${pnl}</td>
+    `;
+
+    updateCharts();
+    tradeForm.reset();
+  });
+</script>
 </body>
 </html>
